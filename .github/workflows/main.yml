@@ -28,17 +28,8 @@ jobs:
         run: |
           $password = "ia-K;mNYg7^=^rG"
           net user runneradmin $password
-          
           echo "USER=runneradmin" >> $env:GITHUB_ENV
           echo "PASS=$password" >> $env:GITHUB_ENV
-          
-          Write-Host "====================================="
-          Write-Host "===       ACCESS READY           ==="
-          Write-Host "====================================="
-          Write-Host "Username : runneradmin"
-          Write-Host "Password : ia-K;mNYg7^=^rG"
-          Write-Host "RDP Port : 39211"
-          Write-Host "====================================="
 
       - name: Install Network Tool
         run: |
@@ -48,18 +39,48 @@ jobs:
           Start-Process msiexec.exe -ArgumentList "/i `"$path`" /quiet /norestart" -Wait
           Remove-Item $path -Force
 
-      - name: Connect Network
+      - name: Connect Network (DEBUG MODE)
         run: |
-          # FIXED: removed --ssh + added --reset for clean connection
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up `
+          Write-Host "=== TAILSCALE DEBUG START ==="
+          
+          $key = "${{ secrets.TAILSCALE_AUTH_KEY }}"
+          Write-Host "Auth key length: $($key.Length) characters"
+          if ($key.Length -lt 10) {
+              Write-Host "ERROR: Auth key is empty or too short! Update the secret."
+              exit 1
+          }
+
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" logout 2>$null
+          
+          Write-Host "Running tailscale up..."
+          $upResult = & "$env:ProgramFiles\Tailscale\tailscale.exe" up `
             --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} `
             --hostname=win-builder-${{ github.run_id }} `
-            --reset `
-            --accept-routes=false --accept-dns=false
+            --reset --accept-routes=false --accept-dns=false 2>&1
+          Write-Host $upResult
+
+          Write-Host "Tailscale status:"
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" status
+
+          Write-Host "Trying to get IP (retrying up to 60 seconds)..."
+          $ip = $null
+          for ($i = 1; $i -le 12; $i++) {
+              Start-Sleep -Seconds 5
+              $ip = (& "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4)
+              if ($ip) {
+                  Write-Host "SUCCESS! Tailscale IP = $ip"
+                  break
+              }
+              Write-Host "Attempt $i/12 - no IP yet..."
+          }
+
+          if (-not $ip) {
+              Write-Host "ERROR: Tailscale still has no IP. Check your auth key!"
+              exit 1
+          }
           
-          Start-Sleep -Seconds 12
-          $ip = (& "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4)
           echo "IP=$ip" >> $env:GITHUB_ENV
+          Write-Host "=== TAILSCALE DEBUG END ==="
 
       - name: Connection Info
         run: |
@@ -68,16 +89,13 @@ jobs:
           Write-Host "Username    → runneradmin"
           Write-Host "Password    → ia-K;mNYg7^=^rG"
           Write-Host "====================================="
-          Write-Host "Open mstsc.exe and connect now!"
 
       - name: Keep Online (auto-close after 15 hours)
         run: |
           Write-Host "Runner will automatically close after exactly 15 hours"
           $totalSeconds = 15 * 3600
-          $interval = 300
-          for ($i = 0; $i -lt $totalSeconds; $i += $interval) {
+          for ($i = 0; $i -lt $totalSeconds; $i += 300) {
               $remaining = [math]::Round(($totalSeconds - $i) / 3600, 1)
               Write-Host "[$(Get-Date)] Active - $remaining hours left"
-              Start-Sleep -Seconds $interval
+              Start-Sleep -Seconds 300
           }
-          Write-Host "15 hours reached - shutting down"
