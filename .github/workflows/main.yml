@@ -64,7 +64,7 @@ jobs:
       - name: Connection Info
         run: |
           Write-Host "====================================="
-          Write-Host "RDP Address → $env:IP:39211"
+          Write-Host "Address → $env:IP:39211"
           Write-Host "Username    → runneradmin"
           Write-Host "Password    → ia-K;mNYg7^=^rG"
           Write-Host "====================================="
