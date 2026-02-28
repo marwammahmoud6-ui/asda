@@ -50,7 +50,12 @@ jobs:
 
       - name: Connect Network
         run: |
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=win-builder-${{ github.run_id }} --ssh --accept-routes=false --accept-dns=false
+          # FIXED: removed --ssh + added --reset for clean connection
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up `
+            --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} `
+            --hostname=win-builder-${{ github.run_id }} `
+            --reset `
+            --accept-routes=false --accept-dns=false
           
           Start-Sleep -Seconds 12
           $ip = (& "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4)
