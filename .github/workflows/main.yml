@@ -59,7 +59,7 @@ jobs:
 
       - name: Install Tailscale
         run: |
-          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-amd64.msi"
+          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-1.94.2-amd64.msi"
           $path = "$env:TEMP\ts.msi"
           Invoke-WebRequest -Uri $url -OutFile $path
           Start-Process msiexec.exe -ArgumentList "/i `"$path`" /quiet /norestart" -Wait
