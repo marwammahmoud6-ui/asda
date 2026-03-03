@@ -54,7 +54,7 @@ jobs:
         run: |
           Write-Host "=== TUNNEL SERVICE START ==="
           $logFile = "tunnel.log"
-          Start-Process ssh -ArgumentList "-R 0:localhost:39211 -N -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL localhost.run 2>&1" `
+          Start-Process cmd.exe -ArgumentList "/c ssh -R 0:localhost:39211 -N -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL localhost.run 2>&1" `
             -NoNewWindow -RedirectStandardOutput $logFile -PassThru
 
           Write-Host "Waiting for tunnel address (checking every 6 seconds)..."
