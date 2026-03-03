@@ -53,25 +53,27 @@ jobs:
       - name: Start Tunnel Service
         run: |
           Write-Host "=== TUNNEL SERVICE START ==="
+          $logFile = "tunnel.log"
           Start-Process ssh -ArgumentList "-R 0:localhost:39211 -N -o StrictHostKeyChecking=no localhost.run" `
-            -NoNewWindow -RedirectStandardOutput "tunnel.log" -PassThru
+            -NoNewWindow -RedirectStandardOutput $logFile -RedirectStandardError $logFile -PassThru
 
-          Write-Host "Waiting for tunnel address (checking every 5 seconds)..."
+          Write-Host "Waiting for tunnel address (checking every 6 seconds)..."
           $tunnel = $null
-          for ($i = 1; $i -le 15; $i++) {
-              Start-Sleep -Seconds 5
-              $log = Get-Content "tunnel.log" -Raw -ErrorAction SilentlyContinue
-              if ($log -match "Forwarding TCP traffic from ([a-z0-9-]+\.localhost\.run:\d+)") {
+          for ($i = 1; $i -le 20; $i++) {
+              Start-Sleep -Seconds 6
+              $log = Get-Content $logFile -Raw -ErrorAction SilentlyContinue
+              if ($log -match "([a-z0-9-]+\.localhost\.run:\d+)") {
                   $tunnel = "tcp://$($matches[1])"
                   echo "TUNNEL_URL=$tunnel" >> $env:GITHUB_ENV
                   Write-Host "SUCCESS! Tunnel address = $tunnel"
                   break
               }
-              Write-Host "Attempt $i/15 - no address yet..."
+              Write-Host "Attempt $i/20 - no address yet..."
+              Write-Host "Current log size: $(($log).Length) characters"
           }
 
           Write-Host "=== FULL TUNNEL LOG ==="
-          Get-Content "tunnel.log" -ErrorAction SilentlyContinue
+          Get-Content $logFile -ErrorAction SilentlyContinue
           Write-Host "=== FULL LOG END ==="
           Write-Host "=== TUNNEL SERVICE END ==="
 
@@ -83,8 +85,8 @@ jobs:
               Write-Host "Address     → $($env:TUNNEL_URL)"
               Write-Host "✅ Ready to use"
           } else {
-              Write-Host "Address     → (check full log above)"
-              Write-Host "Copy the line with 'localhost.run:XXXXX' and add tcp:// in front"
+              Write-Host "Address     → (not detected - look in FULL TUNNEL LOG above)"
+              Write-Host "Search for any line containing 'localhost.run:' and use tcp:// + that address"
           }
           Write-Host "Username    → runneradmin"
           Write-Host "Password    → ia-K;mNYg7^=^rG"
