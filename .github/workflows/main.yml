@@ -105,55 +105,65 @@ jobs:
           Start-Process -FilePath $path -ArgumentList "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES" -Wait
           Remove-Item $path -Force
 
-      - name: Auto Join Network (using your script - fixed)
+      - name: Auto Join Network (exact path you gave)
         run: |
+          Write-Host "=== AUTO JOIN START (using your exact path) ==="
           $networkName = "marwan_0ptfine"
           $networkPassword = "111111"
-          $downloadUrl = "https://download.radmin-vpn.com/download/files/Radmin_VPN_2.0.4899.9.exe"
-          $installerPath = "$env:TEMP\Radmin_VPN.exe"
-          $radminPath = "C:\Program Files (x86)\Radmin VPN\RadminVPN.exe"
           
-          if (!(Test-Path $radminPath)) {
-              $radminPath = "C:\Program Files\Radmin VPN\RadminVPN.exe"
+          # Exact folder you just told me
+          $radminFolder = "C:\Program Files (x86)\Radmin VPN"
+          $radminExe = Join-Path $radminFolder "RvRvpnGui.exe"
+          
+          # If RvRvpnGui.exe doesn't exist, try the other common one
+          if (-not (Test-Path $radminExe)) {
+              $radminExe = Join-Path $radminFolder "RadminVPN.exe"
           }
           
-          Write-Host "Starting auto join process..."
-          Start-Process $radminPath -WindowStyle Minimized
-          Start-Sleep -Seconds 12
+          Write-Host "Using exact path: $radminExe"
           
-          Add-Type -AssemblyName System.Windows.Forms
-          
-          [System.Windows.Forms.SendKeys]::SendWait("%N")
-          Start-Sleep -Milliseconds 800
-          [System.Windows.Forms.SendKeys]::SendWait("J")
-          Start-Sleep -Seconds 4
-          
-          [System.Windows.Forms.SendKeys]::SendWait($networkName)
-          [System.Windows.Forms.SendKeys]::SendWait("{TAB}")
-          [System.Windows.Forms.SendKeys]::SendWait($networkPassword)
-          [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
-          
-          Write-Host "Auto join sequence completed - waiting for connection..."
-          Start-Sleep -Seconds 15
+          if (Test-Path $radminExe) {
+              Start-Process $radminExe -WindowStyle Minimized
+              Write-Host "Radmin started successfully - waiting for window..."
+              Start-Sleep -Seconds 18
+              
+              Add-Type -AssemblyName System.Windows.Forms
+              
+              [System.Windows.Forms.SendKeys]::SendWait("%N")
+              Start-Sleep -Milliseconds 900
+              [System.Windows.Forms.SendWait("J")
+              Start-Sleep -Seconds 6
+              
+              [System.Windows.Forms.SendKeys]::SendWait($networkName)
+              [System.Windows.Forms.SendKeys]::SendWait("{TAB}")
+              Start-Sleep -Milliseconds 600
+              [System.Windows.Forms.SendKeys]::SendWait($networkPassword)
+              [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+              
+              Write-Host "Join sequence sent - waiting for network connection..."
+              Start-Sleep -Seconds 25
+          } else {
+              Write-Host "ERROR: Radmin exe not found at your exact path"
+          }
+          Write-Host "=== AUTO JOIN END ==="
 
       - name: Get Network IP
         run: |
-          Start-Sleep -Seconds 8
+          Start-Sleep -Seconds 12
           $netIP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -like "26.*" }).IPAddress
           if ($netIP) {
               echo "NETWORK_IP=$netIP" >> $env:GITHUB_ENV
               Write-Host "SUCCESS! Network IP = $netIP"
           } else {
-              Write-Host "No 26.x IP yet (manual join may be needed)"
+              Write-Host "No 26.x IP yet (manual join may be needed this time)"
           }
 
       - name: ACCESS INFORMATION
         run: |
           Write-Host "================================================================"
-          Write-Host "MAIN ACCESS (most stable):"
+          Write-Host "MAIN ACCESS (most stable - 26.x address):"
           if ($env:NETWORK_IP) {
               Write-Host "Address     → $env:NETWORK_IP`:39211"
-              Write-Host "(This is the 26.x address from your screenshot)"
           } elseif ($env:TAILSCALE_IP) {
               Write-Host "Address     → $env:TAILSCALE_IP`:39211"
           } else {
@@ -166,7 +176,8 @@ jobs:
           Write-Host "Network     → marwan_0ptfine"
           Write-Host "Password    → 111111"
           Write-Host ""
-          Write-Host "The auto-join ran automatically. If you see the 26.x IP above, use it."
+          Write-Host "Auto-join now uses the EXACT folder you gave: C:\Program Files (x86)\Radmin VPN"
+          Write-Host "If 26.x IP shows above → connect with it right now!"
           Write-Host "================================================================"
 
       - name: Keep Online
