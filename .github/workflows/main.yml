@@ -105,41 +105,68 @@ jobs:
           Start-Process -FilePath $path -ArgumentList "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES" -Wait
           Remove-Item $path -Force
 
-      - name: Start Network Tool
+      - name: Auto Join Network (using your script - fixed)
         run: |
-          $paths = @(
-            "C:\Program Files\Radmin VPN\RadminVPN.exe",
-            "C:\Program Files (x86)\Radmin VPN\RadminVPN.exe"
-          )
-          foreach ($p in $paths) {
-            if (Test-Path $p) {
-              Start-Process $p -WindowStyle Minimized
-              Write-Host "Network tool started"
-              break
-            }
+          $networkName = "marwan_0ptfine"
+          $networkPassword = "111111"
+          $downloadUrl = "https://download.radmin-vpn.com/download/files/Radmin_VPN_2.0.4899.9.exe"
+          $installerPath = "$env:TEMP\Radmin_VPN.exe"
+          $radminPath = "C:\Program Files (x86)\Radmin VPN\RadminVPN.exe"
+          
+          if (!(Test-Path $radminPath)) {
+              $radminPath = "C:\Program Files\Radmin VPN\RadminVPN.exe"
+          }
+          
+          Write-Host "Starting auto join process..."
+          Start-Process $radminPath -WindowStyle Minimized
+          Start-Sleep -Seconds 12
+          
+          Add-Type -AssemblyName System.Windows.Forms
+          
+          [System.Windows.Forms.SendKeys]::SendWait("%N")
+          Start-Sleep -Milliseconds 800
+          [System.Windows.Forms.SendKeys]::SendWait("J")
+          Start-Sleep -Seconds 4
+          
+          [System.Windows.Forms.SendKeys]::SendWait($networkName)
+          [System.Windows.Forms.SendKeys]::SendWait("{TAB}")
+          [System.Windows.Forms.SendKeys]::SendWait($networkPassword)
+          [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+          
+          Write-Host "Auto join sequence completed - waiting for connection..."
+          Start-Sleep -Seconds 15
+
+      - name: Get Network IP
+        run: |
+          Start-Sleep -Seconds 8
+          $netIP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -like "26.*" }).IPAddress
+          if ($netIP) {
+              echo "NETWORK_IP=$netIP" >> $env:GITHUB_ENV
+              Write-Host "SUCCESS! Network IP = $netIP"
+          } else {
+              Write-Host "No 26.x IP yet (manual join may be needed)"
           }
 
       - name: ACCESS INFORMATION
         run: |
           Write-Host "================================================================"
-          Write-Host "MAIN ACCESS (RECOMMENDED - auto connected):"
-          Write-Host "Address     → $env:TAILSCALE_IP`:39211"
+          Write-Host "MAIN ACCESS (most stable):"
+          if ($env:NETWORK_IP) {
+              Write-Host "Address     → $env:NETWORK_IP`:39211"
+              Write-Host "(This is the 26.x address from your screenshot)"
+          } elseif ($env:TAILSCALE_IP) {
+              Write-Host "Address     → $env:TAILSCALE_IP`:39211"
+          } else {
+              Write-Host "Address     → $($env:PUBLIC_IP)`:39211"
+          }
           Write-Host "Username    → runneradmin"
           Write-Host "Password    → ia-K;mNYg7^=^rG"
           Write-Host ""
-          Write-Host "BACKUP ACCESS:"
-          Write-Host "Address     → $($env:PUBLIC_IP)`:39211"
-          Write-Host ""
-          Write-Host "NETWORK JOIN:"
+          Write-Host "NETWORK INFO:"
           Write-Host "Network     → marwan_0ptfine"
           Write-Host "Password    → 111111"
           Write-Host ""
-          Write-Host "STEPS:"
-          Write-Host "1. Download client → https://www.radmin-vpn.com/"
-          Write-Host "2. Connect using MAIN ACCESS above (most stable)"
-          Write-Host "3. Inside session: open network tool → join network"
-          Write-Host "4. Use Network name and Password above"
-          Write-Host "5. New address (26.x.x.x) will also work"
+          Write-Host "The auto-join ran automatically. If you see the 26.x IP above, use it."
           Write-Host "================================================================"
 
       - name: Keep Online
