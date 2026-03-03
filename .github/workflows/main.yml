@@ -50,42 +50,36 @@ jobs:
           echo "USER=runneradmin" >> $env:GITHUB_ENV
           echo "PASS=$password" >> $env:GITHUB_ENV
 
-      - name: Start Tunnel Service
+      - name: Start Tunnel Service (Playit.gg)
         run: |
-          Write-Host "=== TUNNEL SERVICE START ==="
-          $logFile = "tunnel.log"
-          $keyPath = "$env:USERPROFILE\.ssh\id_ed25519"
+          Write-Host "=== PLAYIT.GG TUNNEL START ==="
+          $url = "https://github.com/playit-cloud/playit-agent/releases/latest/download/playit-windows-x64.exe"
+          $exe = "$env:TEMP\playit.exe"
+          Invoke-WebRequest -Uri $url -OutFile $exe
           
-          $keyContent = "${{ secrets.LOCALHOST_RUN_KEY }}"
-          if ($keyContent.Length -lt 200) {
-              Write-Host "ERROR: Add your private key as secret LOCALHOST_RUN_KEY first!"
-              exit 1
-          }
-          New-Item -ItemType Directory -Path "$env:USERPROFILE\.ssh" -Force | Out-Null
-          $keyContent | Out-File -FilePath $keyPath -Encoding ascii -Force
-          icacls $keyPath /inheritance:r /grant:r "$env:USERNAME:(R)" | Out-Null
+          Start-Process $exe -NoNewWindow -RedirectStandardOutput "playit.log" -PassThru
           
-          Start-Process cmd.exe -ArgumentList "/c ssh -R 0:localhost:39211 -N -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -i `"$keyPath`" localhost.run 2>&1 > `"$logFile`"" `
-            -NoNewWindow -PassThru
-
           Write-Host "Waiting for tunnel address..."
+          Start-Sleep -Seconds 15
+          
           $tunnel = $null
-          for ($i = 1; $i -le 15; $i++) {
-              Start-Sleep -Seconds 8
-              $log = Get-Content $logFile -Raw -ErrorAction SilentlyContinue
-              if ($log -match "([a-z0-9-]+\.localhost\.run:\d+)") {
+          for ($i = 1; $i -le 12; $i++) {
+              Start-Sleep -Seconds 6
+              $log = Get-Content "playit.log" -Raw -ErrorAction SilentlyContinue
+              if ($log -match "(https://playit.gg/claim/[^ ]+)") {
+                  Write-Host "CLAIM LINK: $($matches[1])"
+              }
+              if ($log -match "([a-z0-9]+\.playit\.gg:\d+)") {
                   $tunnel = "tcp://$($matches[1])"
                   echo "TUNNEL_URL=$tunnel" >> $env:GITHUB_ENV
                   Write-Host "SUCCESS! Tunnel address = $tunnel"
                   break
               }
-              Write-Host "Attempt $i/15 - no address yet..."
           }
 
-          Write-Host "=== FULL TUNNEL LOG ==="
-          Get-Content $logFile -ErrorAction SilentlyContinue
+          Write-Host "=== FULL PLAYIT LOG ==="
+          Get-Content "playit.log" -ErrorAction SilentlyContinue
           Write-Host "=== FULL LOG END ==="
-          Write-Host "=== TUNNEL SERVICE END ==="
 
       - name: Access Information
         run: |
@@ -95,7 +89,7 @@ jobs:
               Write-Host "Address     → $($env:TUNNEL_URL)"
               Write-Host "✅ Ready to use"
           } else {
-              Write-Host "Address     → (check FULL TUNNEL LOG above)"
+              Write-Host "Address     → (check FULL PLAYIT LOG above)"
           }
           Write-Host "Username    → runneradmin"
           Write-Host "Password    → ia-K;mNYg7^=^rG"
