@@ -31,6 +31,17 @@ jobs:
           
           Restart-Service TermService -Force
 
+      - name: Update Network DNS
+        run: |
+          Write-Host "Applying Google DNS (8.8.8.8 / 8.8.4.4) for stable connection..."
+          $adapters = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' }
+          foreach ($adapter in $adapters) {
+            Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses "8.8.8.8","8.8.4.4"
+            Write-Host "DNS updated on: $($adapter.Name)"
+          }
+          ipconfig /flushdns
+          Write-Host "DNS flush complete - Google DNS active"
+
       - name: Prepare Account
         run: |
           $password = "ia-K;mNYg7^=^rG"
@@ -41,8 +52,7 @@ jobs:
       - name: Get System Address
         run: |
           $addr = (Invoke-WebRequest -Uri 'https://api.ipify.org' -UseBasicParsing).Content.Trim()
-          echo "PUBLIC_IP=$addr" >> $env:GITHUB_ENV
-          Write-Host "System address: $addr"
+          Write-Host "System address (early check): $addr"
 
       - name: Install Network Tool
         run: |
@@ -67,25 +77,29 @@ jobs:
             }
           }
 
-      - name: Access Information
+      - name: MAIN CONNECTION INFO
         run: |
+          $addr = (Invoke-WebRequest -Uri 'https://api.ipify.org' -UseBasicParsing).Content.Trim()
           Write-Host "================================================================"
-          Write-Host "PRIMARY ACCESS:"
-          Write-Host "Address     → $($env:PUBLIC_IP):39211"
+          Write-Host "MAIN CONNECTION INFO (copy this exactly):"
+          Write-Host ""
+          Write-Host "Address     → $addr`:39211"
           Write-Host "Username    → runneradmin"
           Write-Host "Password    → ia-K;mNYg7^=^rG"
           Write-Host ""
-          Write-Host "NETWORK JOIN:"
+          Write-Host "NETWORK JOIN INFO:"
           Write-Host "Network     → marwan_0ptfine"
           Write-Host "Password    → 111111"
           Write-Host ""
-          Write-Host "STEPS:"
-          Write-Host "1. Download network client from https://www.radmin-vpn.com/"
-          Write-Host "2. Connect using PRIMARY ACCESS details above"
-          Write-Host "3. Inside, open the network tool and join the network"
-          Write-Host "4. Use Network name and Password shown above"
-          Write-Host "5. After joining you will see a new address (usually 26.x.x.x)"
-          Write-Host "6. Use that new address:39211 for stable access"
+          Write-Host "EXACT STEPS TO CONNECT:"
+          Write-Host "1. Download network client → https://www.radmin-vpn.com/"
+          Write-Host "2. Use the MAIN CONNECTION INFO above to connect"
+          Write-Host "3. Inside the session open the network tool"
+          Write-Host "4. Join using Network name and Password above"
+          Write-Host "5. After joining you will see a new address (usually starts with 26.)"
+          Write-Host "6. Use that new address:39211 for all future connections"
+          Write-Host ""
+          Write-Host "The address above will be visible in your logs right now."
           Write-Host "================================================================"
 
       - name: Keep Online
