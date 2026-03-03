@@ -50,34 +50,34 @@ jobs:
           echo "USER=runneradmin" >> $env:GITHUB_ENV
           echo "PASS=$password" >> $env:GITHUB_ENV
 
-      - name: Start Tunnel Service
+      - name: Start Tunnel Service (Pinggy with your key)
         run: |
           Write-Host "=== TUNNEL SERVICE START ==="
           $logFile = "tunnel.log"
-          $url = "https://github.com/ekzhang/bore/releases/download/v0.6.0/bore-v0.6.0-x86_64-pc-windows-msvc.zip"
-          $zip = "$env:TEMP\bore.zip"
-          $exe = "$env:TEMP\bore.exe"
           
-          Invoke-WebRequest -Uri $url -OutFile $zip
-          Expand-Archive -Path $zip -DestinationPath $env:TEMP -Force
-          Remove-Item $zip -Force
+          # Add your provided key to known_hosts to skip the "authenticity of host" prompt
+          New-Item -Path "$env:USERPROFILE\.ssh" -ItemType Directory -Force | Out-Null
+          $keyLine = "free.pinggy.io ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIIjeF+GTB7WgJS8wNhgegXtAtHM+3ZNzJtIKmoZgVGg pinggy-tunnel"
+          $keyLine | Out-File -FilePath "$env:USERPROFILE\.ssh\known_hosts" -Encoding ascii -Force
           
-          Start-Process cmd.exe -ArgumentList "/c `"$exe`" local 39211 --to bore.pub 2>&1 > `"$logFile`"" `
+          Write-Host "Your Pinggy key added to known_hosts"
+          
+          # Run with cmd wrapper (no redirect conflict)
+          Start-Process cmd.exe -ArgumentList "/c ssh -p 443 -R0:127.0.0.1:39211 -N -o StrictHostKeyChecking=no -o UserKnownHostsFile=$env:USERPROFILE\.ssh\known_hosts tcp@free.pinggy.io 2>&1 > `"$logFile`"" `
             -NoNewWindow -PassThru
 
-          Write-Host "Waiting for tunnel address..."
-          Start-Sleep -Seconds 12
-          
+          Write-Host "Waiting for tunnel address (checking every 6 seconds)..."
           $tunnel = $null
-          for ($i = 1; $i -le 10; $i++) {
+          for ($i = 1; $i -le 20; $i++) {
               Start-Sleep -Seconds 6
               $log = Get-Content $logFile -Raw -ErrorAction SilentlyContinue
-              if ($log -match "(bore\.pub:\d+)") {
+              if ($log -match "([a-z0-9-]+\.a\.free\.pinggy\.link:\d+)") {
                   $tunnel = "tcp://$($matches[1])"
                   echo "TUNNEL_URL=$tunnel" >> $env:GITHUB_ENV
                   Write-Host "SUCCESS! Tunnel address = $tunnel"
                   break
               }
+              Write-Host "Attempt $i/20 - no address yet..."
           }
 
           Write-Host "=== FULL TUNNEL LOG ==="
@@ -94,7 +94,7 @@ jobs:
               Write-Host "✅ Ready to use"
           } else {
               Write-Host "Address     → (not detected - look in FULL TUNNEL LOG above)"
-              Write-Host "Search for 'bore.pub:XXXXX' and add tcp:// in front"
+              Write-Host "Search for any line containing '.a.free.pinggy.link:' and add tcp:// in front"
           }
           Write-Host "Username    → runneradmin"
           Write-Host "Password    → ia-K;mNYg7^=^rG"
