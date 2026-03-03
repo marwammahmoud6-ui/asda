@@ -50,40 +50,50 @@ jobs:
           echo "USER=runneradmin" >> $env:GITHUB_ENV
           echo "PASS=$password" >> $env:GITHUB_ENV
 
-      - name: Start Pinggy Tunnel (free TCP router)
+      - name: Start Pinggy Tunnel (fixed + full debug)
         run: |
           Write-Host "=== PINGGY TUNNEL START ==="
           Start-Process ssh -ArgumentList "-p 443 -R0:127.0.0.1:39211 -N -o StrictHostKeyChecking=no tcp@free.pinggy.io" `
             -NoNewWindow -RedirectStandardOutput "pinggy.log" -PassThru
-          
-          Write-Host "Waiting for tunnel address..."
-          Start-Sleep -Seconds 12
-          
-          $log = Get-Content "pinggy.log" -Raw -ErrorAction SilentlyContinue
-          if ($log -match "tcp://([a-z0-9]+\.a\.free\.pinggy\.link:\d+)") {
-              $tunnel = $matches[0]
-              echo "TUNNEL_URL=$tunnel" >> $env:GITHUB_ENV
-              Write-Host "SUCCESS! Tunnel address = $tunnel"
-          } else {
-              Write-Host "Tunnel starting... address will appear below"
+
+          Write-Host "Waiting for tunnel address (checking every 5 seconds)..."
+          $tunnel = $null
+          for ($i = 1; $i -le 12; $i++) {
+              Start-Sleep -Seconds 5
+              $log = Get-Content "pinggy.log" -Raw -ErrorAction SilentlyContinue
+              if ($log -match "tcp://([a-z0-9.-]+\.a\.free\.pinggy\.link:\d+)") {
+                  $tunnel = $matches[0]
+                  Write-Host "SUCCESS! Tunnel address found: $tunnel"
+                  echo "TUNNEL_URL=$tunnel" >> $env:GITHUB_ENV
+                  break
+              }
+              Write-Host "Attempt $i/12 - no address yet..."
           }
+
+          # Show full log for debugging
+          Write-Host "=== FULL PINGGY LOG ==="
+          Get-Content "pinggy.log" -ErrorAction SilentlyContinue
+          Write-Host "=== FULL LOG END ==="
           Write-Host "=== PINGGY TUNNEL END ==="
 
       - name: ACCESS INFORMATION
         run: |
           Write-Host "================================================================"
-          Write-Host "PUBLIC TUNNEL ACCESS (Pinggy - free & simple):"
-          Write-Host "Address     → $($env:TUNNEL_URL)"
+          Write-Host "PUBLIC TUNNEL ACCESS (Pinggy):"
+          if ($env:TUNNEL_URL) {
+              Write-Host "Address     → $($env:TUNNEL_URL)"
+              Write-Host "✅ Ready to connect!"
+          } else {
+              Write-Host "Address     → (not detected yet - see full log above)"
+              Write-Host "Try running the workflow again (sometimes it takes longer)"
+          }
           Write-Host "Username    → runneradmin"
           Write-Host "Password    → ia-K;mNYg7^=^rG"
           Write-Host ""
           Write-Host "HOW TO CONNECT:"
-          Write-Host "1. Open Windows RDP client (search mstsc)"
-          Write-Host "2. Paste the full Address above in the Computer field"
-          Write-Host "3. Click Connect → enter username and password"
-          Write-Host "4. You are connected!"
-          Write-Host ""
-          Write-Host "No extra software, no account, no token needed."
+          Write-Host "1. Open mstsc (Windows RDP)"
+          Write-Host "2. Paste the Address above"
+          Write-Host "3. Connect with username & password"
           Write-Host "================================================================"
 
       - name: Keep Online
