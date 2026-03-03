@@ -50,49 +50,62 @@ jobs:
           echo "USER=runneradmin" >> $env:GITHUB_ENV
           echo "PASS=$password" >> $env:GITHUB_ENV
 
-      - name: Start Serveo Tunnel (free public router - new tool)
+      - name: Start Bore Tunnel (free public router)
         run: |
-          Write-Host "=== SERVE O TUNNEL START ==="
-          Start-Process ssh -ArgumentList "-R 0:localhost:39211 serveo.net" `
-            -NoNewWindow -RedirectStandardOutput "serveo.log" -PassThru
-
-          Write-Host "Waiting for tunnel address (checking every 5 seconds)..."
-          $tunnel = $null
-          for ($i = 1; $i -le 15; $i++) {
-              Start-Sleep -Seconds 5
-              $log = Get-Content "serveo.log" -Raw -ErrorAction SilentlyContinue
-              if ($log -match "Forwarding TCP traffic from (serveo\.net:\d+)") {
+          Write-Host "=== BORE TUNNEL START ==="
+          $url = "https://github.com/ekzhang/bore/releases/download/v0.6.0/bore-v0.6.0-x86_64-pc-windows-msvc.zip"
+          $zip = "$env:TEMP\bore.zip"
+          $exe = "$env:TEMP\bore.exe"
+          
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath $env:TEMP -Force
+          Remove-Item $zip -Force
+          
+          Write-Host "Bore downloaded and ready"
+          
+          Start-Process $exe -ArgumentList "local 39211 --to bore.pub" -NoNewWindow -RedirectStandardOutput "bore.log" -PassThru
+          
+          Write-Host "Waiting for public address..."
+          Start-Sleep -Seconds 8
+          
+          $log = Get-Content "bore.log" -Raw -ErrorAction SilentlyContinue
+          if ($log -match "(bore\.pub:\d+)") {
+              $tunnel = "tcp://$($matches[1])"
+              echo "TUNNEL_URL=$tunnel" >> $env:GITHUB_ENV
+              Write-Host "SUCCESS! Public address = $tunnel"
+          } else {
+              Write-Host "Waiting a bit more..."
+              Start-Sleep -Seconds 6
+              $log = Get-Content "bore.log" -Raw -ErrorAction SilentlyContinue
+              if ($log -match "(bore\.pub:\d+)") {
                   $tunnel = "tcp://$($matches[1])"
                   echo "TUNNEL_URL=$tunnel" >> $env:GITHUB_ENV
-                  Write-Host "SUCCESS! Tunnel address = $tunnel"
-                  break
+                  Write-Host "SUCCESS! Public address = $tunnel"
               }
-              Write-Host "Attempt $i/15 - no address yet..."
           }
-
-          Write-Host "=== FULL SERVE O LOG ==="
-          Get-Content "serveo.log" -ErrorAction SilentlyContinue
+          
+          Write-Host "=== FULL BORE LOG ==="
+          Get-Content "bore.log" -ErrorAction SilentlyContinue
           Write-Host "=== FULL LOG END ==="
-          Write-Host "=== SERVE O TUNNEL END ==="
 
       - name: ACCESS INFORMATION
         run: |
           Write-Host "================================================================"
-          Write-Host "PUBLIC TUNNEL ACCESS (Serveo - new free tool):"
+          Write-Host "PUBLIC TUNNEL ACCESS (Bore - free & stable):"
           if ($env:TUNNEL_URL) {
               Write-Host "Address     → $($env:TUNNEL_URL)"
-              Write-Host "✅ Ready to connect now!"
+              Write-Host "✅ Copy this and use in RDP!"
           } else {
-              Write-Host "Address     → (check full log above - copy the serveo.net:XXXXX line)"
-              Write-Host "Run workflow again if needed"
+              Write-Host "Address     → (check full log above for bore.pub:XXXXX)"
+              Write-Host "Use tcp://bore.pub:XXXXX in your RDP client"
           }
           Write-Host "Username    → runneradmin"
           Write-Host "Password    → ia-K;mNYg7^=^rG"
           Write-Host ""
           Write-Host "HOW TO CONNECT:"
-          Write-Host "1. Open mstsc (Windows RDP client)"
+          Write-Host "1. Open mstsc (Windows RDP)"
           Write-Host "2. Paste the full Address above"
-          Write-Host "3. Click Connect → enter username & password"
+          Write-Host "3. Connect with username & password"
           Write-Host "================================================================"
 
       - name: Keep Online
