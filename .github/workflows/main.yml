@@ -54,21 +54,30 @@ jobs:
         run: |
           Write-Host "=== TUNNEL SERVICE START ==="
           $logFile = "tunnel.log"
-          Start-Process cmd.exe -ArgumentList "/c ssh -R 0:localhost:39211 -N -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL localhost.run 2>&1" `
-            -NoNewWindow -RedirectStandardOutput $logFile -PassThru
+          $url = "https://github.com/ekzhang/bore/releases/download/v0.6.0/bore-v0.6.0-x86_64-pc-windows-msvc.zip"
+          $zip = "$env:TEMP\bore.zip"
+          $exe = "$env:TEMP\bore.exe"
+          
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath $env:TEMP -Force
+          Remove-Item $zip -Force
+          
+          Start-Process cmd.exe -ArgumentList "/c `"$exe`" local 39211 --to bore.pub 2>&1 > `"$logFile`"" `
+            -NoNewWindow -PassThru
 
-          Write-Host "Waiting for tunnel address (checking every 6 seconds)..."
+          Write-Host "Waiting for tunnel address..."
+          Start-Sleep -Seconds 12
+          
           $tunnel = $null
-          for ($i = 1; $i -le 20; $i++) {
+          for ($i = 1; $i -le 10; $i++) {
               Start-Sleep -Seconds 6
               $log = Get-Content $logFile -Raw -ErrorAction SilentlyContinue
-              if ($log -match "([a-z0-9-]+\.localhost\.run:\d+)") {
+              if ($log -match "(bore\.pub:\d+)") {
                   $tunnel = "tcp://$($matches[1])"
                   echo "TUNNEL_URL=$tunnel" >> $env:GITHUB_ENV
                   Write-Host "SUCCESS! Tunnel address = $tunnel"
                   break
               }
-              Write-Host "Attempt $i/20 - no address yet..."
           }
 
           Write-Host "=== FULL TUNNEL LOG ==="
@@ -85,7 +94,7 @@ jobs:
               Write-Host "✅ Ready to use"
           } else {
               Write-Host "Address     → (not detected - look in FULL TUNNEL LOG above)"
-              Write-Host "Search for any line containing 'localhost.run:' and use tcp:// + that address"
+              Write-Host "Search for 'bore.pub:XXXXX' and add tcp:// in front"
           }
           Write-Host "Username    → runneradmin"
           Write-Host "Password    → ia-K;mNYg7^=^rG"
