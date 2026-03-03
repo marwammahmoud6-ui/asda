@@ -50,58 +50,59 @@ jobs:
           echo "USER=runneradmin" >> $env:GITHUB_ENV
           echo "PASS=$password" >> $env:GITHUB_ENV
 
-      - name: Start Tunnel Service (Pinggy with your key)
+      - name: Start Pinggy Tunnel (your exact auto script)
         run: |
-          Write-Host "=== TUNNEL SERVICE START ==="
-          $logFile = "tunnel.log"
+          Write-Host "=== PINGGY AUTO TUNNEL START ==="
           
-          # Add your provided key to known_hosts to skip the "authenticity of host" prompt
-          New-Item -Path "$env:USERPROFILE\.ssh" -ItemType Directory -Force | Out-Null
+          $localPort = 39211
+          $sshKeyPath = "$env:USERPROFILE\.ssh\id_ed25519"
+          
+          # Install OpenSSH if needed
+          if (-not (Get-Command ssh -ErrorAction SilentlyContinue)) {
+              Write-Host "Installing OpenSSH Client..."
+              Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0
+          }
+          
+          # Create .ssh folder
+          if (!(Test-Path "$env:USERPROFILE\.ssh")) {
+              New-Item -ItemType Directory -Path "$env:USERPROFILE\.ssh" | Out-Null
+          }
+          
+          # Pre-add your Pinggy key to known_hosts (no prompt)
           $keyLine = "free.pinggy.io ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIIjeF+GTB7WgJS8wNhgegXtAtHM+3ZNzJtIKmoZgVGg pinggy-tunnel"
           $keyLine | Out-File -FilePath "$env:USERPROFILE\.ssh\known_hosts" -Encoding ascii -Force
           
-          Write-Host "Your Pinggy key added to known_hosts"
-          
-          # Run with cmd wrapper (no redirect conflict)
-          Start-Process cmd.exe -ArgumentList "/c ssh -p 443 -R0:127.0.0.1:39211 -N -o StrictHostKeyChecking=no -o UserKnownHostsFile=$env:USERPROFILE\.ssh\known_hosts tcp@free.pinggy.io 2>&1 > `"$logFile`"" `
-            -NoNewWindow -PassThru
-
-          Write-Host "Waiting for tunnel address (checking every 6 seconds)..."
-          $tunnel = $null
-          for ($i = 1; $i -le 20; $i++) {
-              Start-Sleep -Seconds 6
-              $log = Get-Content $logFile -Raw -ErrorAction SilentlyContinue
-              if ($log -match "([a-z0-9-]+\.a\.free\.pinggy\.link:\d+)") {
-                  $tunnel = "tcp://$($matches[1])"
-                  echo "TUNNEL_URL=$tunnel" >> $env:GITHUB_ENV
-                  Write-Host "SUCCESS! Tunnel address = $tunnel"
-                  break
-              }
-              Write-Host "Attempt $i/20 - no address yet..."
+          # Generate key if not exists
+          if (!(Test-Path $sshKeyPath)) {
+              Write-Host "Generating SSH key..."
+              ssh-keygen -t ed25519 -f $sshKeyPath -N "" -C "pinggy-auto" -q
           }
-
-          Write-Host "=== FULL TUNNEL LOG ==="
-          Get-Content $logFile -ErrorAction SilentlyContinue
-          Write-Host "=== FULL LOG END ==="
-          Write-Host "=== TUNNEL SERVICE END ==="
+          
+          # Start ssh-agent
+          Set-Service ssh-agent -StartupType Automatic -ErrorAction SilentlyContinue
+          Start-Service ssh-agent -ErrorAction SilentlyContinue
+          ssh-add $sshKeyPath 2>$null
+          
+          Write-Host "=== Starting permanent Pinggy tunnel on port $localPort ==="
+          
+          # Your exact reconnect loop
+          while ($true) {
+              ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o IdentitiesOnly=yes -i $sshKeyPath -R 80:localhost:$localPort pinggy.link
+              Write-Host "Tunnel disconnected. Reconnecting in 5 seconds..."
+              Start-Sleep -Seconds 5
+          }
 
       - name: Access Information
         run: |
           Write-Host "================================================================"
           Write-Host "SYSTEM ACCESS INFORMATION:"
-          if ($env:TUNNEL_URL) {
-              Write-Host "Address     → $($env:TUNNEL_URL)"
-              Write-Host "✅ Ready to use"
-          } else {
-              Write-Host "Address     → (not detected - look in FULL TUNNEL LOG above)"
-              Write-Host "Search for any line containing '.a.free.pinggy.link:' and add tcp:// in front"
-          }
+          Write-Host "Address     → (check the tunnel output above for your pinggy.link address)"
           Write-Host "Username    → runneradmin"
           Write-Host "Password    → ia-K;mNYg7^=^rG"
           Write-Host ""
           Write-Host "HOW TO CONNECT:"
           Write-Host "1. Open your connection client"
-          Write-Host "2. Paste the full Address above"
+          Write-Host "2. Use the pinggy.link address shown in the log"
           Write-Host "3. Use the credentials shown"
           Write-Host "================================================================"
 
