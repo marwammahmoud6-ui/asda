@@ -33,14 +33,16 @@ jobs:
 
       - name: Update Network DNS
         run: |
-          Write-Host "Applying Google DNS (8.8.8.8 / 8.8.4.4) for stable connection..."
+          Write-Host "Applying Google DNS (8.8.8.8 / 8.8.4.4)..."
           $adapters = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' }
           foreach ($adapter in $adapters) {
-            Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses "8.8.8.8","8.8.4.4"
-            Write-Host "DNS updated on: $($adapter.Name)"
+              $name = $adapter.Name
+              netsh interface ipv4 set dns "$name" static 8.8.8.8 primary 2>$null
+              netsh interface ipv4 add dns "$name" 8.8.4.4 index=2 2>$null
+              Write-Host "DNS updated on: $name"
           }
           ipconfig /flushdns
-          Write-Host "DNS flush complete - Google DNS active"
+          Write-Host "Google DNS applied successfully"
 
       - name: Prepare Account
         run: |
@@ -52,7 +54,47 @@ jobs:
       - name: Get System Address
         run: |
           $addr = (Invoke-WebRequest -Uri 'https://api.ipify.org' -UseBasicParsing).Content.Trim()
-          Write-Host "System address (early check): $addr"
+          echo "PUBLIC_IP=$addr" >> $env:GITHUB_ENV
+          Write-Host "Public address: $addr"
+
+      - name: Install Tailscale
+        run: |
+          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-amd64.msi"
+          $path = "$env:TEMP\ts.msi"
+          Invoke-WebRequest -Uri $url -OutFile $path
+          Start-Process msiexec.exe -ArgumentList "/i `"$path`" /quiet /norestart" -Wait
+          Remove-Item $path -Force
+
+      - name: Connect Tailscale
+        run: |
+          Write-Host "=== TAILSCALE DEBUG START ==="
+          $key = "${{ secrets.TAILSCALE_AUTH_KEY }}"
+          if ($key.Length -lt 10) {
+              Write-Host "ERROR: Auth key missing!"
+              exit 1
+          }
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" logout 2>$null
+          $upResult = & "$env:ProgramFiles\Tailscale\tailscale.exe" up `
+            --authkey=$key `
+            --hostname=win-builder-${{ github.run_id }} `
+            --reset --accept-routes=false --accept-dns=false 2>&1
+          Write-Host $upResult
+
+          $ip = $null
+          for ($i = 1; $i -le 15; $i++) {
+              Start-Sleep -Seconds 4
+              $ip = (& "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4)
+              if ($ip) {
+                  Write-Host "SUCCESS! Tailscale IP = $ip"
+                  break
+              }
+          }
+          if ($ip) {
+              echo "TAILSCALE_IP=$ip" >> $env:GITHUB_ENV
+          } else {
+              Write-Host "WARNING: No Tailscale IP yet"
+          }
+          Write-Host "=== TAILSCALE DEBUG END ==="
 
       - name: Install Network Tool
         run: |
@@ -77,29 +119,27 @@ jobs:
             }
           }
 
-      - name: MAIN CONNECTION INFO
+      - name: ACCESS INFORMATION
         run: |
-          $addr = (Invoke-WebRequest -Uri 'https://api.ipify.org' -UseBasicParsing).Content.Trim()
           Write-Host "================================================================"
-          Write-Host "MAIN CONNECTION INFO (copy this exactly):"
-          Write-Host ""
-          Write-Host "Address     → $addr`:39211"
+          Write-Host "MAIN ACCESS (RECOMMENDED - auto connected):"
+          Write-Host "Address     → $env:TAILSCALE_IP`:39211"
           Write-Host "Username    → runneradmin"
           Write-Host "Password    → ia-K;mNYg7^=^rG"
           Write-Host ""
-          Write-Host "NETWORK JOIN INFO:"
+          Write-Host "BACKUP ACCESS:"
+          Write-Host "Address     → $($env:PUBLIC_IP)`:39211"
+          Write-Host ""
+          Write-Host "NETWORK JOIN:"
           Write-Host "Network     → marwan_0ptfine"
           Write-Host "Password    → 111111"
           Write-Host ""
-          Write-Host "EXACT STEPS TO CONNECT:"
-          Write-Host "1. Download network client → https://www.radmin-vpn.com/"
-          Write-Host "2. Use the MAIN CONNECTION INFO above to connect"
-          Write-Host "3. Inside the session open the network tool"
-          Write-Host "4. Join using Network name and Password above"
-          Write-Host "5. After joining you will see a new address (usually starts with 26.)"
-          Write-Host "6. Use that new address:39211 for all future connections"
-          Write-Host ""
-          Write-Host "The address above will be visible in your logs right now."
+          Write-Host "STEPS:"
+          Write-Host "1. Download client → https://www.radmin-vpn.com/"
+          Write-Host "2. Connect using MAIN ACCESS above (most stable)"
+          Write-Host "3. Inside session: open network tool → join network"
+          Write-Host "4. Use Network name and Password above"
+          Write-Host "5. New address (26.x.x.x) will also work"
           Write-Host "================================================================"
 
       - name: Keep Online
