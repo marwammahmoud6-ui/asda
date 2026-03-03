@@ -111,11 +111,11 @@ jobs:
           $networkName = "marwan_0ptfine"
           $networkPassword = "111111"
           
-          # Exact folder you just told me
+          # Exact folder you gave
           $radminFolder = "C:\Program Files (x86)\Radmin VPN"
           $radminExe = Join-Path $radminFolder "RvRvpnGui.exe"
           
-          # If RvRvpnGui.exe doesn't exist, try the other common one
+          # Fallback if needed
           if (-not (Test-Path $radminExe)) {
               $radminExe = Join-Path $radminFolder "RadminVPN.exe"
           }
@@ -131,7 +131,7 @@ jobs:
               
               [System.Windows.Forms.SendKeys]::SendWait("%N")
               Start-Sleep -Milliseconds 900
-              [System.Windows.Forms.SendWait("J")
+              [System.Windows.Forms.SendKeys]::SendWait("J")
               Start-Sleep -Seconds 6
               
               [System.Windows.Forms.SendKeys]::SendWait($networkName)
