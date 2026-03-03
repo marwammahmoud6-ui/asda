@@ -33,7 +33,7 @@ jobs:
 
       - name: Update Network DNS
         run: |
-          Write-Host "Applying Google DNS (8.8.8.8 / 8.8.4.4)..."
+          Write-Host "Applying Google DNS..."
           $adapters = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' }
           foreach ($adapter in $adapters) {
               $name = $adapter.Name
@@ -42,7 +42,6 @@ jobs:
               Write-Host "DNS updated on: $name"
           }
           ipconfig /flushdns
-          Write-Host "Google DNS applied successfully"
 
       - name: Prepare Account
         run: |
@@ -51,133 +50,40 @@ jobs:
           echo "USER=runneradmin" >> $env:GITHUB_ENV
           echo "PASS=$password" >> $env:GITHUB_ENV
 
-      - name: Get System Address
+      - name: Start Pinggy Tunnel (free TCP router)
         run: |
-          $addr = (Invoke-WebRequest -Uri 'https://api.ipify.org' -UseBasicParsing).Content.Trim()
-          echo "PUBLIC_IP=$addr" >> $env:GITHUB_ENV
-          Write-Host "Public address: $addr"
-
-      - name: Install Tailscale
-        run: |
-          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-1.94.2-amd64.msi"
-          $path = "$env:TEMP\ts.msi"
-          Invoke-WebRequest -Uri $url -OutFile $path
-          Start-Process msiexec.exe -ArgumentList "/i `"$path`" /quiet /norestart" -Wait
-          Remove-Item $path -Force
-
-      - name: Connect Tailscale
-        run: |
-          Write-Host "=== TAILSCALE DEBUG START ==="
-          $key = "${{ secrets.TAILSCALE_AUTH_KEY }}"
-          if ($key.Length -lt 10) {
-              Write-Host "ERROR: Auth key missing!"
-              exit 1
-          }
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" logout 2>$null
-          $upResult = & "$env:ProgramFiles\Tailscale\tailscale.exe" up `
-            --authkey=$key `
-            --hostname=win-builder-${{ github.run_id }} `
-            --reset --accept-routes=false --accept-dns=false 2>&1
-          Write-Host $upResult
-
-          $ip = $null
-          for ($i = 1; $i -le 15; $i++) {
-              Start-Sleep -Seconds 4
-              $ip = (& "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4)
-              if ($ip) {
-                  Write-Host "SUCCESS! Tailscale IP = $ip"
-                  break
-              }
-          }
-          if ($ip) {
-              echo "TAILSCALE_IP=$ip" >> $env:GITHUB_ENV
-          } else {
-              Write-Host "WARNING: No Tailscale IP yet"
-          }
-          Write-Host "=== TAILSCALE DEBUG END ==="
-
-      - name: Install Network Tool
-        run: |
-          $url = "https://download.radmin-vpn.com/download/files/Radmin_VPN_2.0.4899.9.exe"
-          $path = "$env:TEMP\nettool.exe"
-          Invoke-WebRequest -Uri $url -OutFile $path
-          Write-Host "Installing network tool..."
-          Start-Process -FilePath $path -ArgumentList "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES" -Wait
-          Remove-Item $path -Force
-
-      - name: Auto Join Network (exact path you gave)
-        run: |
-          Write-Host "=== AUTO JOIN START (using your exact path) ==="
-          $networkName = "marwan_0ptfine"
-          $networkPassword = "111111"
+          Write-Host "=== PINGGY TUNNEL START ==="
+          Start-Process ssh -ArgumentList "-p 443 -R0:127.0.0.1:39211 -N -o StrictHostKeyChecking=no tcp@free.pinggy.io" `
+            -NoNewWindow -RedirectStandardOutput "pinggy.log" -PassThru
           
-          # Exact folder you gave
-          $radminFolder = "C:\Program Files (x86)\Radmin VPN"
-          $radminExe = Join-Path $radminFolder "RvRvpnGui.exe"
-          
-          # Fallback if needed
-          if (-not (Test-Path $radminExe)) {
-              $radminExe = Join-Path $radminFolder "RadminVPN.exe"
-          }
-          
-          Write-Host "Using exact path: $radminExe"
-          
-          if (Test-Path $radminExe) {
-              Start-Process $radminExe -WindowStyle Minimized
-              Write-Host "Radmin started successfully - waiting for window..."
-              Start-Sleep -Seconds 18
-              
-              Add-Type -AssemblyName System.Windows.Forms
-              
-              [System.Windows.Forms.SendKeys]::SendWait("%N")
-              Start-Sleep -Milliseconds 900
-              [System.Windows.Forms.SendKeys]::SendWait("J")
-              Start-Sleep -Seconds 6
-              
-              [System.Windows.Forms.SendKeys]::SendWait($networkName)
-              [System.Windows.Forms.SendKeys]::SendWait("{TAB}")
-              Start-Sleep -Milliseconds 600
-              [System.Windows.Forms.SendKeys]::SendWait($networkPassword)
-              [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
-              
-              Write-Host "Join sequence sent - waiting for network connection..."
-              Start-Sleep -Seconds 25
-          } else {
-              Write-Host "ERROR: Radmin exe not found at your exact path"
-          }
-          Write-Host "=== AUTO JOIN END ==="
-
-      - name: Get Network IP
-        run: |
+          Write-Host "Waiting for tunnel address..."
           Start-Sleep -Seconds 12
-          $netIP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -like "26.*" }).IPAddress
-          if ($netIP) {
-              echo "NETWORK_IP=$netIP" >> $env:GITHUB_ENV
-              Write-Host "SUCCESS! Network IP = $netIP"
+          
+          $log = Get-Content "pinggy.log" -Raw -ErrorAction SilentlyContinue
+          if ($log -match "tcp://([a-z0-9]+\.a\.free\.pinggy\.link:\d+)") {
+              $tunnel = $matches[0]
+              echo "TUNNEL_URL=$tunnel" >> $env:GITHUB_ENV
+              Write-Host "SUCCESS! Tunnel address = $tunnel"
           } else {
-              Write-Host "No 26.x IP yet (manual join may be needed this time)"
+              Write-Host "Tunnel starting... address will appear below"
           }
+          Write-Host "=== PINGGY TUNNEL END ==="
 
       - name: ACCESS INFORMATION
         run: |
           Write-Host "================================================================"
-          Write-Host "MAIN ACCESS (most stable - 26.x address):"
-          if ($env:NETWORK_IP) {
-              Write-Host "Address     → $env:NETWORK_IP`:39211"
-          } elseif ($env:TAILSCALE_IP) {
-              Write-Host "Address     → $env:TAILSCALE_IP`:39211"
-          } else {
-              Write-Host "Address     → $($env:PUBLIC_IP)`:39211"
-          }
+          Write-Host "PUBLIC TUNNEL ACCESS (Pinggy - free & simple):"
+          Write-Host "Address     → $($env:TUNNEL_URL)"
           Write-Host "Username    → runneradmin"
           Write-Host "Password    → ia-K;mNYg7^=^rG"
           Write-Host ""
-          Write-Host "NETWORK INFO:"
-          Write-Host "Network     → marwan_0ptfine"
-          Write-Host "Password    → 111111"
+          Write-Host "HOW TO CONNECT:"
+          Write-Host "1. Open Windows RDP client (search mstsc)"
+          Write-Host "2. Paste the full Address above in the Computer field"
+          Write-Host "3. Click Connect → enter username and password"
+          Write-Host "4. You are connected!"
           Write-Host ""
-          Write-Host "Auto-join now uses the EXACT folder you gave: C:\Program Files (x86)\Radmin VPN"
-          Write-Host "If 26.x IP shows above → connect with it right now!"
+          Write-Host "No extra software, no account, no token needed."
           Write-Host "================================================================"
 
       - name: Keep Online
