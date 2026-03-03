@@ -50,50 +50,49 @@ jobs:
           echo "USER=runneradmin" >> $env:GITHUB_ENV
           echo "PASS=$password" >> $env:GITHUB_ENV
 
-      - name: Start Pinggy Tunnel (fixed + full debug)
+      - name: Start Serveo Tunnel (free public router - new tool)
         run: |
-          Write-Host "=== PINGGY TUNNEL START ==="
-          Start-Process ssh -ArgumentList "-p 443 -R0:127.0.0.1:39211 -N -o StrictHostKeyChecking=no tcp@free.pinggy.io" `
-            -NoNewWindow -RedirectStandardOutput "pinggy.log" -PassThru
+          Write-Host "=== SERVE O TUNNEL START ==="
+          Start-Process ssh -ArgumentList "-R 0:localhost:39211 serveo.net" `
+            -NoNewWindow -RedirectStandardOutput "serveo.log" -PassThru
 
           Write-Host "Waiting for tunnel address (checking every 5 seconds)..."
           $tunnel = $null
-          for ($i = 1; $i -le 12; $i++) {
+          for ($i = 1; $i -le 15; $i++) {
               Start-Sleep -Seconds 5
-              $log = Get-Content "pinggy.log" -Raw -ErrorAction SilentlyContinue
-              if ($log -match "tcp://([a-z0-9.-]+\.a\.free\.pinggy\.link:\d+)") {
-                  $tunnel = $matches[0]
-                  Write-Host "SUCCESS! Tunnel address found: $tunnel"
+              $log = Get-Content "serveo.log" -Raw -ErrorAction SilentlyContinue
+              if ($log -match "Forwarding TCP traffic from (serveo\.net:\d+)") {
+                  $tunnel = "tcp://$($matches[1])"
                   echo "TUNNEL_URL=$tunnel" >> $env:GITHUB_ENV
+                  Write-Host "SUCCESS! Tunnel address = $tunnel"
                   break
               }
-              Write-Host "Attempt $i/12 - no address yet..."
+              Write-Host "Attempt $i/15 - no address yet..."
           }
 
-          # Show full log for debugging
-          Write-Host "=== FULL PINGGY LOG ==="
-          Get-Content "pinggy.log" -ErrorAction SilentlyContinue
+          Write-Host "=== FULL SERVE O LOG ==="
+          Get-Content "serveo.log" -ErrorAction SilentlyContinue
           Write-Host "=== FULL LOG END ==="
-          Write-Host "=== PINGGY TUNNEL END ==="
+          Write-Host "=== SERVE O TUNNEL END ==="
 
       - name: ACCESS INFORMATION
         run: |
           Write-Host "================================================================"
-          Write-Host "PUBLIC TUNNEL ACCESS (Pinggy):"
+          Write-Host "PUBLIC TUNNEL ACCESS (Serveo - new free tool):"
           if ($env:TUNNEL_URL) {
               Write-Host "Address     → $($env:TUNNEL_URL)"
-              Write-Host "✅ Ready to connect!"
+              Write-Host "✅ Ready to connect now!"
           } else {
-              Write-Host "Address     → (not detected yet - see full log above)"
-              Write-Host "Try running the workflow again (sometimes it takes longer)"
+              Write-Host "Address     → (check full log above - copy the serveo.net:XXXXX line)"
+              Write-Host "Run workflow again if needed"
           }
           Write-Host "Username    → runneradmin"
           Write-Host "Password    → ia-K;mNYg7^=^rG"
           Write-Host ""
           Write-Host "HOW TO CONNECT:"
-          Write-Host "1. Open mstsc (Windows RDP)"
-          Write-Host "2. Paste the Address above"
-          Write-Host "3. Connect with username & password"
+          Write-Host "1. Open mstsc (Windows RDP client)"
+          Write-Host "2. Paste the full Address above"
+          Write-Host "3. Click Connect → enter username & password"
           Write-Host "================================================================"
 
       - name: Keep Online
