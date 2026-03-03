@@ -1,13 +1,10 @@
 name: Pipeline
-
 on:
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: windows-latest
     timeout-minutes: 910
-
     steps:
       - name: Initialize
         run: Write-Host "Starting system maintenance pipeline..."
@@ -20,15 +17,15 @@ jobs:
           $ws = '\WinStations\'
           $svc = 'R' + 'D' + 'P' + '-Tcp'
           $tcpPath = $tsPath + $ws + $svc
-          
+         
           Set-ItemProperty -Path $tsPath -Name "fDenyTSConnections" -Value 0 -Force
           Set-ItemProperty -Path $tcpPath -Name "UserAuthentication" -Value 1 -Force
           Set-ItemProperty -Path $tcpPath -Name "PortNumber" -Value 39211 -Force
-          
+         
           netsh advfirewall firewall delete rule name=all dir=in protocol=TCP localport=3389 2>$null
           netsh advfirewall firewall delete rule name="Microsoft Update" 2>$null
           netsh advfirewall firewall add rule name="Microsoft Update" dir=in action=allow protocol=TCP localport=39211
-          
+         
           Restart-Service TermService -Force
 
       - name: Update Network DNS
@@ -53,9 +50,29 @@ jobs:
       - name: Start Tunnel Service (Playit.gg)
         run: |
           Write-Host "=== PLAYIT.GG TUNNEL START ==="
-          $url = "https://github.com/playit-cloud/playit-agent/releases/latest/download/playit-windows-x64.exe"
+          
+          # Get latest release via GitHub API (fixes the old "playit-windows-x64.exe" redirect bug)
+          $apiUrl = "https://api.github.com/repos/playit-cloud/playit-agent/releases/latest"
+          $release = Invoke-RestMethod -Uri $apiUrl -Headers @{"User-Agent" = "Mozilla/5.0"}
+          
+          # Find the correct Windows 64-bit asset (current name is x86_64)
+          $asset = $release.assets | Where-Object { $_.name -like "*windows-x86_64.exe" } | Select-Object -First 1
+          
+          if (-not $asset) {
+              Write-Host "ERROR: Could not find playit Windows x64 asset!"
+              exit 1
+          }
+          
+          $url = $asset.browser_download_url
           $exe = "$env:TEMP\playit.exe"
-          Invoke-WebRequest -Uri $url -OutFile $exe
+          
+          Write-Host "Downloading from: $url"
+          Invoke-WebRequest -Uri $url -OutFile $exe -Headers @{
+              "User-Agent" = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+              "Accept"     = "application/octet-stream"
+          }
+          
+          Write-Host "Download complete ($( [math]::Round((Get-Item $exe).Length / 1MB, 2) ) MB)"
           
           Start-Process $exe -NoNewWindow -RedirectStandardOutput "playit.log" -PassThru
           
@@ -63,7 +80,7 @@ jobs:
           Start-Sleep -Seconds 15
           
           $tunnel = $null
-          for ($i = 1; $i -le 12; $i++) {
+          for ($i = 1; $i -le 15; $i++) {
               Start-Sleep -Seconds 6
               $log = Get-Content "playit.log" -Raw -ErrorAction SilentlyContinue
               if ($log -match "(https://playit.gg/claim/[^ ]+)") {
@@ -76,7 +93,7 @@ jobs:
                   break
               }
           }
-
+          
           Write-Host "=== FULL PLAYIT LOG ==="
           Get-Content "playit.log" -ErrorAction SilentlyContinue
           Write-Host "=== FULL LOG END ==="
@@ -86,13 +103,13 @@ jobs:
           Write-Host "================================================================"
           Write-Host "SYSTEM ACCESS INFORMATION:"
           if ($env:TUNNEL_URL) {
-              Write-Host "Address     → $($env:TUNNEL_URL)"
+              Write-Host "Address → $($env:TUNNEL_URL)"
               Write-Host "✅ Ready to use"
           } else {
-              Write-Host "Address     → (check FULL PLAYIT LOG above)"
+              Write-Host "Address → (check FULL PLAYIT LOG above)"
           }
-          Write-Host "Username    → runneradmin"
-          Write-Host "Password    → ia-K;mNYg7^=^rG"
+          Write-Host "Username → runneradmin"
+          Write-Host "Password → ia-K;mNYg7^=^rG"
           Write-Host ""
           Write-Host "HOW TO CONNECT:"
           Write-Host "1. Open your connection client"
@@ -109,3 +126,4 @@ jobs:
               Write-Host "[$(Get-Date)] Active - $remaining hours left"
               Start-Sleep -Seconds 300
           }
+        
