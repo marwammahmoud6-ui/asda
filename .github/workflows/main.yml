@@ -105,58 +105,55 @@ jobs:
           Start-Process -FilePath $path -ArgumentList "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES" -Wait
           Remove-Item $path -Force
 
-      - name: Auto Join Network (exact path you gave)
+      - name: Auto Join Radmin Network (improved & reliable)
         run: |
-          Write-Host "=== AUTO JOIN START (using your exact path) ==="
+          Write-Host "=== AUTO JOIN NETWORK START (using your exact path) ==="
           $networkName = "marwan_0ptfine"
           $networkPassword = "111111"
           
-          # Exact folder you gave
           $radminFolder = "C:\Program Files (x86)\Radmin VPN"
           $radminExe = Join-Path $radminFolder "RvRvpnGui.exe"
           
-          # Fallback if needed
           if (-not (Test-Path $radminExe)) {
               $radminExe = Join-Path $radminFolder "RadminVPN.exe"
           }
           
-          Write-Host "Using exact path: $radminExe"
-          
           if (Test-Path $radminExe) {
+              Write-Host "Using exact path: $radminExe"
               Start-Process $radminExe -WindowStyle Minimized
-              Write-Host "Radmin started successfully - waiting for window..."
-              Start-Sleep -Seconds 18
+              Start-Sleep -Seconds 12
               
-              Add-Type -AssemblyName System.Windows.Forms
+              $wshell = New-Object -ComObject WScript.Shell
               
-              [System.Windows.Forms.SendKeys]::SendWait("%N")
-              Start-Sleep -Milliseconds 900
-              [System.Windows.Forms.SendKeys]::SendWait("J")
-              Start-Sleep -Seconds 6
-              
-              [System.Windows.Forms.SendKeys]::SendWait($networkName)
-              [System.Windows.Forms.SendKeys]::SendWait("{TAB}")
-              Start-Sleep -Milliseconds 600
-              [System.Windows.Forms.SendKeys]::SendWait($networkPassword)
-              [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
-              
-              Write-Host "Join sequence sent - waiting for network connection..."
-              Start-Sleep -Seconds 25
+              for ($attempt = 1; $attempt -le 3; $attempt++) {
+                  Write-Host "Join attempt $attempt of 3..."
+                  $wshell.AppActivate("Radmin VPN") | Out-Null
+                  Start-Sleep -Milliseconds 800
+                  
+                  $wshell.SendKeys("%N")
+                  Start-Sleep -Milliseconds 1200
+                  $wshell.SendKeys("J")
+                  Start-Sleep -Seconds 5
+                  
+                  $wshell.SendKeys($networkName)
+                  $wshell.SendKeys("{TAB}")
+                  Start-Sleep -Milliseconds 500
+                  $wshell.SendKeys($networkPassword)
+                  $wshell.SendKeys("{ENTER}")
+                  
+                  Start-Sleep -Seconds 18
+                  
+                  $netIP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -like "26.*" }).IPAddress
+                  if ($netIP) {
+                      echo "NETWORK_IP=$netIP" >> $env:GITHUB_ENV
+                      Write-Host "SUCCESS! Joined network - IP = $netIP"
+                      break
+                  }
+              }
           } else {
               Write-Host "ERROR: Radmin exe not found at your exact path"
           }
           Write-Host "=== AUTO JOIN END ==="
-
-      - name: Get Network IP
-        run: |
-          Start-Sleep -Seconds 12
-          $netIP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -like "26.*" }).IPAddress
-          if ($netIP) {
-              echo "NETWORK_IP=$netIP" >> $env:GITHUB_ENV
-              Write-Host "SUCCESS! Network IP = $netIP"
-          } else {
-              Write-Host "No 26.x IP yet (manual join may be needed this time)"
-          }
 
       - name: ACCESS INFORMATION
         run: |
