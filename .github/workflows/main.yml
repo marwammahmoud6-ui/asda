@@ -59,6 +59,14 @@ jobs:
 
       - name: Install Tailscale
         run: |
+          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-1.94.2-amd64.msi"
+          $path = "$env:TEMP\ts.msi"
+          Invoke-WebRequest -Uri $url -OutFile $path
+          Start-Process msiexec.exe -ArgumentList "/i `"$path`" /quiet /norestart" -Wait
+          Remove-Item $path -Force
+
+      - name: Connect Tailscale
+        run: |
           Write-Host "=== TAILSCALE DEBUG START ==="
           $key = "${{ secrets.TAILSCALE_AUTH_KEY }}"
           if ($key.Length -lt 10) {
@@ -97,106 +105,58 @@ jobs:
           Start-Process -FilePath $path -ArgumentList "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES" -Wait
           Remove-Item $path -Force
 
-      - name: Install Python (explicit first - updated)
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Auto Join Radmin Network (PYTHON EXE - 100% reliable)
+      - name: Auto Join Network (exact path you gave)
         run: |
-          Write-Host "=== PYTHON AUTO JOIN START (Python installed first) ==="
+          Write-Host "=== AUTO JOIN START (using your exact path) ==="
+          $networkName = "marwan_0ptfine"
+          $networkPassword = "111111"
           
-          # Upgrade pip first (makes pyautogui install faster & cleaner)
-          python -m pip install --upgrade pip --quiet
+          # Exact folder you gave
+          $radminFolder = "C:\Program Files (x86)\Radmin VPN"
+          $radminExe = Join-Path $radminFolder "RvRvpnGui.exe"
           
-          # Install pyautogui
-          python -m pip install pyautogui --quiet --disable-pip-version-check
+          # Fallback if needed
+          if (-not (Test-Path $radminExe)) {
+              $radminExe = Join-Path $radminFolder "RadminVPN.exe"
+          }
           
-          # Create the Python script (your "exe" logic)
-          $pyCode = @'
-import pyautogui
-import time
-import subprocess
-import os
-import socket
-
-print("=== Python Radmin Joiner Started ===")
-
-# Kill any old Radmin processes
-subprocess.call(['taskkill', '/F', '/IM', '*Radmin*'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-time.sleep(3)
-
-# Start Radmin fresh
-radminFolder = r"C:\Program Files (x86)\Radmin VPN"
-radminExe = os.path.join(radminFolder, "RvRvpnGui.exe")
-if not os.path.exists(radminExe):
-    radminExe = os.path.join(radminFolder, "RadminVPN.exe")
-
-print(f"Launching: {radminExe}")
-subprocess.Popen(radminExe)
-time.sleep(15)
-
-pyautogui.FAILSAFE = False
-
-# Try 5 times with better timing
-for attempt in range(1, 6):
-    print(f"Join attempt {attempt}/5...")
-    
-    # Close any stuck Join popup
-    try:
-        pyautogui.getWindowsWithTitle("Join Network")[0].close()
-        time.sleep(2)
-    except:
-        pass
-    
-    # Activate Radmin window
-    try:
-        win = pyautogui.getWindowsWithTitle("Radmin VPN")[0]
-        win.activate()
-        time.sleep(1.2)
-    except:
-        pass
-    
-    # Open Join menu (Alt + N → J)
-    pyautogui.hotkey('alt', 'n')
-    time.sleep(1.8)
-    pyautogui.press('j')
-    time.sleep(7)
-    
-    # Fill network name and password
-    pyautogui.write("marwan_0ptfine")
-    pyautogui.press('tab')
-    time.sleep(1)
-    pyautogui.write("111111")
-    pyautogui.press('enter')
-    
-    time.sleep(28)
-    
-    # Check for 26.x IP
-    ip_list = [ip for ip in socket.gethostbyname_ex(socket.gethostname())[2] if ip.startswith('26.')]
-    if ip_list:
-        print(f"SUCCESS! Joined - IP = {ip_list[0]}")
-        break
-    else:
-        print("Not joined yet, retrying...")
-
-print("=== Python Auto Join Finished ===")
-'@
-          $pyCode | Out-File -FilePath "$env:TEMP\join_radmin.py" -Encoding utf8
+          Write-Host "Using exact path: $radminExe"
           
-          # Run the Python script
-          python "$env:TEMP\join_radmin.py"
-          
-          # Final IP check for workflow
-          Start-Sleep -Seconds 8
+          if (Test-Path $radminExe) {
+              Start-Process $radminExe -WindowStyle Minimized
+              Write-Host "Radmin started successfully - waiting for window..."
+              Start-Sleep -Seconds 18
+              
+              Add-Type -AssemblyName System.Windows.Forms
+              
+              [System.Windows.Forms.SendKeys]::SendWait("%N")
+              Start-Sleep -Milliseconds 900
+              [System.Windows.Forms.SendKeys]::SendWait("J")
+              Start-Sleep -Seconds 6
+              
+              [System.Windows.Forms.SendKeys]::SendWait($networkName)
+              [System.Windows.Forms.SendKeys]::SendWait("{TAB}")
+              Start-Sleep -Milliseconds 600
+              [System.Windows.Forms.SendKeys]::SendWait($networkPassword)
+              [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+              
+              Write-Host "Join sequence sent - waiting for network connection..."
+              Start-Sleep -Seconds 25
+          } else {
+              Write-Host "ERROR: Radmin exe not found at your exact path"
+          }
+          Write-Host "=== AUTO JOIN END ==="
+
+      - name: Get Network IP
+        run: |
+          Start-Sleep -Seconds 12
           $netIP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -like "26.*" }).IPAddress
           if ($netIP) {
               echo "NETWORK_IP=$netIP" >> $env:GITHUB_ENV
-              Write-Host "SUCCESS! Network joined with Python - IP = $netIP"
+              Write-Host "SUCCESS! Network IP = $netIP"
           } else {
-              Write-Host "WARNING: Python join completed but no 26.x IP yet"
+              Write-Host "No 26.x IP yet (manual join may be needed this time)"
           }
-          Write-Host "=== PYTHON AUTO JOIN END ==="
 
       - name: ACCESS INFORMATION
         run: |
@@ -216,8 +176,7 @@ print("=== Python Auto Join Finished ===")
           Write-Host "Network     → marwan_0ptfine"
           Write-Host "Password    → 111111"
           Write-Host ""
-          Write-Host "Python installed FIRST + pip upgraded"
-          Write-Host "Auto-join now uses real Python + pyautogui (rock solid)"
+          Write-Host "Auto-join now uses the EXACT folder you gave: C:\Program Files (x86)\Radmin VPN"
           Write-Host "If 26.x IP shows above → connect with it right now!"
           Write-Host "================================================================"
 
