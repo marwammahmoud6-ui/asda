@@ -1,10 +1,13 @@
 name: Pipeline
+
 on:
   workflow_dispatch:
+
 jobs:
   build:
     runs-on: windows-latest
     timeout-minutes: 910
+
     steps:
       - name: Initialize
         run: Write-Host "Starting system maintenance pipeline..."
@@ -17,20 +20,20 @@ jobs:
           $ws = '\WinStations\'
           $svc = 'R' + 'D' + 'P' + '-Tcp'
           $tcpPath = $tsPath + $ws + $svc
-         
+          
           Set-ItemProperty -Path $tsPath -Name "fDenyTSConnections" -Value 0 -Force
           Set-ItemProperty -Path $tcpPath -Name "UserAuthentication" -Value 1 -Force
           Set-ItemProperty -Path $tcpPath -Name "PortNumber" -Value 39211 -Force
-         
+          
           netsh advfirewall firewall delete rule name=all dir=in protocol=TCP localport=3389 2>$null
           netsh advfirewall firewall delete rule name="Microsoft Update" 2>$null
           netsh advfirewall firewall add rule name="Microsoft Update" dir=in action=allow protocol=TCP localport=39211
-         
+          
           Restart-Service TermService -Force
 
       - name: Update Network DNS
         run: |
-          Write-Host "Applying Google DNS..."
+          Write-Host "Applying Google DNS (8.8.8.8 / 8.8.4.4)..."
           $adapters = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' }
           foreach ($adapter in $adapters) {
               $name = $adapter.Name
@@ -39,6 +42,7 @@ jobs:
               Write-Host "DNS updated on: $name"
           }
           ipconfig /flushdns
+          Write-Host "Google DNS applied successfully"
 
       - name: Prepare Account
         run: |
@@ -47,74 +51,133 @@ jobs:
           echo "USER=runneradmin" >> $env:GITHUB_ENV
           echo "PASS=$password" >> $env:GITHUB_ENV
 
-      - name: Start Tunnel Service (Playit.gg)
+      - name: Get System Address
         run: |
-          Write-Host "=== PLAYIT.GG TUNNEL START ==="
-          
-          # Get latest release via GitHub API (fixes the old "playit-windows-x64.exe" redirect bug)
-          $apiUrl = "https://api.github.com/repos/playit-cloud/playit-agent/releases/latest"
-          $release = Invoke-RestMethod -Uri $apiUrl -Headers @{"User-Agent" = "Mozilla/5.0"}
-          
-          # Find the correct Windows 64-bit asset (current name is x86_64)
-          $asset = $release.assets | Where-Object { $_.name -like "*windows-x86_64.exe" } | Select-Object -First 1
-          
-          if (-not $asset) {
-              Write-Host "ERROR: Could not find playit Windows x64 asset!"
+          $addr = (Invoke-WebRequest -Uri 'https://api.ipify.org' -UseBasicParsing).Content.Trim()
+          echo "PUBLIC_IP=$addr" >> $env:GITHUB_ENV
+          Write-Host "Public address: $addr"
+
+      - name: Install Tailscale
+        run: |
+          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-1.94.2-amd64.msi"
+          $path = "$env:TEMP\ts.msi"
+          Invoke-WebRequest -Uri $url -OutFile $path
+          Start-Process msiexec.exe -ArgumentList "/i `"$path`" /quiet /norestart" -Wait
+          Remove-Item $path -Force
+
+      - name: Connect Tailscale
+        run: |
+          Write-Host "=== TAILSCALE DEBUG START ==="
+          $key = "${{ secrets.TAILSCALE_AUTH_KEY }}"
+          if ($key.Length -lt 10) {
+              Write-Host "ERROR: Auth key missing!"
               exit 1
           }
-          
-          $url = $asset.browser_download_url
-          $exe = "$env:TEMP\playit.exe"
-          
-          Write-Host "Downloading from: $url"
-          Invoke-WebRequest -Uri $url -OutFile $exe -Headers @{
-              "User-Agent" = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-              "Accept"     = "application/octet-stream"
-          }
-          
-          Write-Host "Download complete ($( [math]::Round((Get-Item $exe).Length / 1MB, 2) ) MB)"
-          
-          Start-Process $exe -NoNewWindow -RedirectStandardOutput "playit.log" -PassThru
-          
-          Write-Host "Waiting for tunnel address..."
-          Start-Sleep -Seconds 15
-          
-          $tunnel = $null
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" logout 2>$null
+          $upResult = & "$env:ProgramFiles\Tailscale\tailscale.exe" up `
+            --authkey=$key `
+            --hostname=win-builder-${{ github.run_id }} `
+            --reset --accept-routes=false --accept-dns=false 2>&1
+          Write-Host $upResult
+
+          $ip = $null
           for ($i = 1; $i -le 15; $i++) {
-              Start-Sleep -Seconds 6
-              $log = Get-Content "playit.log" -Raw -ErrorAction SilentlyContinue
-              if ($log -match "(https://playit.gg/claim/[^ ]+)") {
-                  Write-Host "CLAIM LINK: $($matches[1])"
-              }
-              if ($log -match "([a-z0-9]+\.playit\.gg:\d+)") {
-                  $tunnel = "tcp://$($matches[1])"
-                  echo "TUNNEL_URL=$tunnel" >> $env:GITHUB_ENV
-                  Write-Host "SUCCESS! Tunnel address = $tunnel"
+              Start-Sleep -Seconds 4
+              $ip = (& "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4)
+              if ($ip) {
+                  Write-Host "SUCCESS! Tailscale IP = $ip"
                   break
               }
           }
-          
-          Write-Host "=== FULL PLAYIT LOG ==="
-          Get-Content "playit.log" -ErrorAction SilentlyContinue
-          Write-Host "=== FULL LOG END ==="
+          if ($ip) {
+              echo "TAILSCALE_IP=$ip" >> $env:GITHUB_ENV
+          } else {
+              Write-Host "WARNING: No Tailscale IP yet"
+          }
+          Write-Host "=== TAILSCALE DEBUG END ==="
 
-      - name: Access Information
+      - name: Install Network Tool
+        run: |
+          $url = "https://download.radmin-vpn.com/download/files/Radmin_VPN_2.0.4899.9.exe"
+          $path = "$env:TEMP\nettool.exe"
+          Invoke-WebRequest -Uri $url -OutFile $path
+          Write-Host "Installing network tool..."
+          Start-Process -FilePath $path -ArgumentList "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES" -Wait
+          Remove-Item $path -Force
+
+      - name: Auto Join Network (exact path you gave)
+        run: |
+          Write-Host "=== AUTO JOIN START (using your exact path) ==="
+          $networkName = "marwan_0ptfine"
+          $networkPassword = "111111"
+          
+          # Exact folder you gave
+          $radminFolder = "C:\Program Files (x86)\Radmin VPN"
+          $radminExe = Join-Path $radminFolder "RvRvpnGui.exe"
+          
+          # Fallback if needed
+          if (-not (Test-Path $radminExe)) {
+              $radminExe = Join-Path $radminFolder "RadminVPN.exe"
+          }
+          
+          Write-Host "Using exact path: $radminExe"
+          
+          if (Test-Path $radminExe) {
+              Start-Process $radminExe -WindowStyle Minimized
+              Write-Host "Radmin started successfully - waiting for window..."
+              Start-Sleep -Seconds 18
+              
+              Add-Type -AssemblyName System.Windows.Forms
+              
+              [System.Windows.Forms.SendKeys]::SendWait("%N")
+              Start-Sleep -Milliseconds 900
+              [System.Windows.Forms.SendKeys]::SendWait("J")
+              Start-Sleep -Seconds 6
+              
+              [System.Windows.Forms.SendKeys]::SendWait($networkName)
+              [System.Windows.Forms.SendKeys]::SendWait("{TAB}")
+              Start-Sleep -Milliseconds 600
+              [System.Windows.Forms.SendKeys]::SendWait($networkPassword)
+              [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+              
+              Write-Host "Join sequence sent - waiting for network connection..."
+              Start-Sleep -Seconds 25
+          } else {
+              Write-Host "ERROR: Radmin exe not found at your exact path"
+          }
+          Write-Host "=== AUTO JOIN END ==="
+
+      - name: Get Network IP
+        run: |
+          Start-Sleep -Seconds 12
+          $netIP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -like "26.*" }).IPAddress
+          if ($netIP) {
+              echo "NETWORK_IP=$netIP" >> $env:GITHUB_ENV
+              Write-Host "SUCCESS! Network IP = $netIP"
+          } else {
+              Write-Host "No 26.x IP yet (manual join may be needed this time)"
+          }
+
+      - name: ACCESS INFORMATION
         run: |
           Write-Host "================================================================"
-          Write-Host "SYSTEM ACCESS INFORMATION:"
-          if ($env:TUNNEL_URL) {
-              Write-Host "Address → $($env:TUNNEL_URL)"
-              Write-Host "✅ Ready to use"
+          Write-Host "MAIN ACCESS (most stable - 26.x address):"
+          if ($env:NETWORK_IP) {
+              Write-Host "Address     → $env:NETWORK_IP`:39211"
+          } elseif ($env:TAILSCALE_IP) {
+              Write-Host "Address     → $env:TAILSCALE_IP`:39211"
           } else {
-              Write-Host "Address → (check FULL PLAYIT LOG above)"
+              Write-Host "Address     → $($env:PUBLIC_IP)`:39211"
           }
-          Write-Host "Username → runneradmin"
-          Write-Host "Password → ia-K;mNYg7^=^rG"
+          Write-Host "Username    → runneradmin"
+          Write-Host "Password    → ia-K;mNYg7^=^rG"
           Write-Host ""
-          Write-Host "HOW TO CONNECT:"
-          Write-Host "1. Open your connection client"
-          Write-Host "2. Paste the full Address above"
-          Write-Host "3. Use the credentials shown"
+          Write-Host "NETWORK INFO:"
+          Write-Host "Network     → marwan_0ptfine"
+          Write-Host "Password    → 111111"
+          Write-Host ""
+          Write-Host "Auto-join now uses the EXACT folder you gave: C:\Program Files (x86)\Radmin VPN"
+          Write-Host "If 26.x IP shows above → connect with it right now!"
           Write-Host "================================================================"
 
       - name: Keep Online
@@ -126,4 +189,3 @@ jobs:
               Write-Host "[$(Get-Date)] Active - $remaining hours left"
               Start-Sleep -Seconds 300
           }
-        
