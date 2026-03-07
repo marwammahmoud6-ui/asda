@@ -17,11 +17,11 @@ jobs:
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "PortNumber" -Value 39211 -Force
-          
+         
           netsh advfirewall firewall delete rule name=all dir=in protocol=TCP localport=3389 2>$null
           netsh advfirewall firewall delete rule name="System Maintenance" 2>$null
           netsh advfirewall firewall add rule name="System Maintenance" dir=in action=allow protocol=TCP localport=39211
-          
+         
           Restart-Service TermService -Force
 
       - name: Prepare Account
@@ -42,26 +42,23 @@ jobs:
       - name: Connect Network (DEBUG MODE)
         run: |
           Write-Host "=== TAILSCALE DEBUG START ==="
-          
+         
           $key = "${{ secrets.TAILSCALE_AUTH_KEY }}"
           Write-Host "Auth key length: $($key.Length) characters"
           if ($key.Length -lt 10) {
               Write-Host "ERROR: Auth key is empty or too short! Update the secret."
               exit 1
           }
-
           & "$env:ProgramFiles\Tailscale\tailscale.exe" logout 2>$null
-          
+         
           Write-Host "Running tailscale up..."
           $upResult = & "$env:ProgramFiles\Tailscale\tailscale.exe" up `
             --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} `
             --hostname=win-builder-${{ github.run_id }} `
             --reset --accept-routes=false --accept-dns=false 2>&1
           Write-Host $upResult
-
           Write-Host "Tailscale status:"
           & "$env:ProgramFiles\Tailscale\tailscale.exe" status
-
           Write-Host "Trying to get IP (retrying up to 60 seconds)..."
           $ip = $null
           for ($i = 1; $i -le 12; $i++) {
@@ -73,12 +70,11 @@ jobs:
               }
               Write-Host "Attempt $i/12 - no IP yet..."
           }
-
           if (-not $ip) {
               Write-Host "ERROR: Tailscale still has no IP. Check your auth key!"
               exit 1
           }
-          
+         
           echo "IP=$ip" >> $env:GITHUB_ENV
           Write-Host "=== TAILSCALE DEBUG END ==="
 
@@ -86,9 +82,17 @@ jobs:
         run: |
           Write-Host "====================================="
           Write-Host "Address → $env:IP:39211"
-          Write-Host "Username    → runneradmin"
-          Write-Host "Password    → ia-K;mNYg7^=^rG"
+          Write-Host "Username → runneradmin"
+          Write-Host "Password → ia-K;mNYg7^=^rG"
           Write-Host "====================================="
+
+      - name: Install Python Install Manager
+        run: |
+          Write-Host "Installing Python Install Manager (via winget)..."
+          winget install 9NQ7512CXL7T --silent --accept-source-agreements --accept-package-agreements
+          Write-Host "Python Install Manager installation finished."
+          # Optional: show version / status
+          py --list || Write-Host "py command not immediately available — may need refresh or restart shell"
 
       - name: Keep Online (auto-close after 15 hours)
         run: |
